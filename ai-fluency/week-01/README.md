@@ -4,7 +4,7 @@
 
 - ✅ What Are You Proving?
 - ✅ Draw the Path
-- ⏳ AI Workflow Audit
+- ✅ AI Workflow Audit
 
 ## Files
 
