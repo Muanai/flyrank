@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -12,6 +12,10 @@ tasks = [
 
 class TaskPayload(BaseModel):
     title: str | None = None
+
+class UpdatePayload(BaseModel):
+    title: str | None = None
+    done: bool | None = None
 
 @app.get("/")
 def read_root():
@@ -41,3 +45,29 @@ def create_task(payload: TaskPayload):
     new_task = {"id": new_id, "title": payload.title.strip(), "done": False}
     tasks.append(new_task)
     return new_task
+
+@app.put("/tasks/{task_id}")
+def update_task(task_id: int, payload: UpdatePayload):
+    if payload.title is not None and not payload.title.strip():
+        return JSONResponse(status_code=400, content={"error": "Invalid body"})
+    if payload.title is None and payload.done is None:
+        return JSONResponse(status_code=400, content={"error": "Empty body"})
+
+    for task in tasks:
+        if task["id"] == task_id:
+            if payload.title is not None:
+                task["title"] = payload.title.strip()
+            if payload.done is not None:
+                task["done"] = payload.done
+            return task
+            
+    return JSONResponse(status_code=404, content={"error": f"Task {task_id} not found"})
+
+@app.delete("/tasks/{task_id}", status_code=204)
+def delete_task(task_id: int):
+    for i, task in enumerate(tasks):
+        if task["id"] == task_id:
+            tasks.pop(i)
+            return Response(status_code=204)
+            
+    return JSONResponse(status_code=404, content={"error": f"Task {task_id} not found"})
