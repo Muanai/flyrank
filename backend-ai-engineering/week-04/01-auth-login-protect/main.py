@@ -1,9 +1,10 @@
 import os
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, status, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Request, status, HTTPException, Depends
+from fastapi.responses import JSONResponse, Response
 from fastapi.exceptions import RequestValidationError
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 
 from auth import supabase
@@ -154,13 +155,37 @@ async def login(credentials: AuthCredentials):
         }
     except Exception as e:
         logger.warning(f"Login failed: {e}")
+        # Return the actual error message from Supabase so we can debug it
         return JSONResponse(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            content={"error": "Invalid login credentials"}
+            content={"error": str(e)}
         )
 
 # -------------------------------------------------------------
-# Stage 2: The Public & Protected Gates
+# Stage 4: Middleware Protection (Dependency)
+# -------------------------------------------------------------
+
+security = HTTPBearer()
+
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """
+    Reusable FastAPI Dependency to extract and verify the JWT token
+    """
+    token = credentials.credentials
+    if supabase is None:
+        raise HTTPException(status_code=500, detail="Supabase client not configured")
+        
+    try:
+        res = supabase.auth.get_user(token)
+        if not res or not res.user:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
+        return res.user
+    except Exception as e:
+        logger.warning(f"Token verification failed: {e}")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
+
+# -------------------------------------------------------------
+# Stage 2 & 3 & 4: The Public & Protected Gates & Logout
 # -------------------------------------------------------------
 
 @app.get(
@@ -176,52 +201,45 @@ async def public_info():
     "/protected/profile",
     status_code=status.HTTP_200_OK,
     tags=["Protected"],
-    summary="Read private user profile data (Verified token check)"
+    summary="Read private user profile data (Protected via Dependency)"
 )
-async def protected_profile(request: Request):
-    auth_header = request.headers.get("Authorization")
-    
-    if not auth_header:
-        return JSONResponse(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            content={"error": "Access token required"}
-        )
-    
-    parts = auth_header.split()
-    if len(parts) != 2 or parts[0].lower() != "bearer":
-        return JSONResponse(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            content={"error": "Access token required"}
-        )
-    
-    token = parts[1]
-    if supabase is None:
-        return JSONResponse(status_code=500, content={"error": "Supabase client not configured"})
-
-    # Stage 3: Verify the token with Supabase
-    try:
-        res = supabase.auth.get_user(token)
-        if not res or not res.user:
-            return JSONResponse(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                content={"error": "Invalid or expired token"}
-            )
-            
-        user = res.user
-        return {
-            "message": "Token verified successfully!",
-            "user": {
-                "id": user.id,
-                "email": user.email,
-                "created_at": str(user.created_at) if hasattr(user, "created_at") else None
-            }
+async def protected_profile(user = Depends(get_current_user)):
+    return {
+        "message": "Token verified successfully!",
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "created_at": str(user.created_at) if hasattr(user, "created_at") else None
         }
+    }
+
+@app.get(
+    "/protected/dashboard",
+    status_code=status.HTTP_200_OK,
+    tags=["Protected"],
+    summary="Example secondary protected route"
+)
+async def protected_dashboard(user = Depends(get_current_user)):
+    return {
+        "message": "Welcome to your protected dashboard!",
+        "user_email": user.email
+    }
+
+@app.post(
+    "/auth/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["Authentication"],
+    summary="Log Out user session"
+)
+async def logout(credentials: HTTPAuthorizationCredentials = Depends(security), user = Depends(get_current_user)):
+    # The get_current_user dependency ensures the user is valid before logging out
+    try:
+        # Sign out invalidates the session in Supabase
+        supabase.auth.sign_out()
     except Exception as e:
-        logger.warning(f"Token verification failed: {e}")
-        return JSONResponse(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            content={"error": "Invalid or expired token"}
-        )
+        logger.warning(f"Logout error: {e}")
+    # Always return 204 No Content for a successful client logout
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 if __name__ == "__main__":
     import uvicorn
