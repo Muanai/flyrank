@@ -138,14 +138,18 @@ async def login(credentials: AuthCredentials):
         if not res.session or not res.session.access_token:
             return JSONResponse(status_code=status.HTTP_401_UNAUTHORIZED, content={"error": "Invalid login credentials"})
 
+        user = res.user or res.session.user
+        if not user:
+            return JSONResponse(status_code=status.HTTP_401_UNAUTHORIZED, content={"error": "Invalid login credentials"})
+
         return {
             "access_token": res.session.access_token,
             "token_type": "bearer",
             "refresh_token": res.session.refresh_token,
             "user": {
-                "id": res.user.id,
-                "email": res.user.email,
-                "created_at": str(res.user.created_at) if hasattr(res.user, "created_at") else None
+                "id": user.id,
+                "email": user.email,
+                "created_at": str(user.created_at) if hasattr(user, "created_at") else None
             }
         }
     except Exception as e:
@@ -153,6 +157,70 @@ async def login(credentials: AuthCredentials):
         return JSONResponse(
             status_code=status.HTTP_401_UNAUTHORIZED,
             content={"error": "Invalid login credentials"}
+        )
+
+# -------------------------------------------------------------
+# Stage 2: The Public & Protected Gates
+# -------------------------------------------------------------
+
+@app.get(
+    "/public/info",
+    status_code=status.HTTP_200_OK,
+    tags=["Public"],
+    summary="Read public, unprotected data"
+)
+async def public_info():
+    return {"message": "Welcome stranger! This info is public."}
+
+@app.get(
+    "/protected/profile",
+    status_code=status.HTTP_200_OK,
+    tags=["Protected"],
+    summary="Read private user profile data (Verified token check)"
+)
+async def protected_profile(request: Request):
+    auth_header = request.headers.get("Authorization")
+    
+    if not auth_header:
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"error": "Access token required"}
+        )
+    
+    parts = auth_header.split()
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"error": "Access token required"}
+        )
+    
+    token = parts[1]
+    if supabase is None:
+        return JSONResponse(status_code=500, content={"error": "Supabase client not configured"})
+
+    # Stage 3: Verify the token with Supabase
+    try:
+        res = supabase.auth.get_user(token)
+        if not res or not res.user:
+            return JSONResponse(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                content={"error": "Invalid or expired token"}
+            )
+            
+        user = res.user
+        return {
+            "message": "Token verified successfully!",
+            "user": {
+                "id": user.id,
+                "email": user.email,
+                "created_at": str(user.created_at) if hasattr(user, "created_at") else None
+            }
+        }
+    except Exception as e:
+        logger.warning(f"Token verification failed: {e}")
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"error": "Invalid or expired token"}
         )
 
 if __name__ == "__main__":
