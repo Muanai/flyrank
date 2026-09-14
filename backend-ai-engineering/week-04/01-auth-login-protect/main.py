@@ -233,6 +233,9 @@ async def protected_dashboard(user = Depends(get_current_user)):
 )
 async def logout(credentials: HTTPAuthorizationCredentials = Depends(security), user = Depends(get_current_user)):
     # The get_current_user dependency ensures the user is valid before logging out
+    if supabase is None:
+        return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
     try:
         # Sign out invalidates the session in Supabase
         supabase.auth.sign_out()
