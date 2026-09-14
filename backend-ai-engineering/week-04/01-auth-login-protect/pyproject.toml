@@ -1,0 +1,20 @@
+[project]
+name = "01-auth-login-protect"
+version = "0.1.0"
+description = "FastAPI Authentication & Route Protection with Supabase Auth"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "email-validator>=2.2.0",
+    "fastapi>=0.115.0",
+    "pydantic>=2.10.0",
+    "python-dotenv>=1.0.1",
+    "requests>=2.32.0",
+    "supabase>=2.10.0",
+    "uvicorn>=0.32.0",
+]
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+
